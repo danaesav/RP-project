@@ -103,3 +103,7 @@ ENV/
 
 # pycharm
 .idea/
+
+data/metr-la.h5
+
+data/pems-bay.h5
