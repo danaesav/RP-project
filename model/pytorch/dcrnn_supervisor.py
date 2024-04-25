@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from lib import utils
+from lib import utils, metrics
 from model.pytorch.dcrnn_model import DCRNNModel
 from model.pytorch.loss import masked_mae_loss
 
@@ -148,6 +148,14 @@ class DCRNNSupervisor:
                 y_pred = self.standard_scaler.inverse_transform(y_preds[t])
                 y_truths_scaled.append(y_truth)
                 y_preds_scaled.append(y_pred)
+                mae = metrics.masked_mae_np(y_pred, y_truth, null_val=0)
+                mape = metrics.masked_mape_np(y_pred, y_truth, null_val=0)
+                rmse = metrics.masked_rmse_np(y_pred, y_truth, null_val=0)
+                self._logger.info(
+                    "Horizon {:02d}, MAE: {:.2f}, MAPE: {:.4f}, RMSE: {:.2f}".format(
+                        t + 1, mae, mape, rmse
+                    )
+                )
 
             return mean_loss, {'prediction': y_preds_scaled, 'truth': y_truths_scaled}
 

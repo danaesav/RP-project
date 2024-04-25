@@ -138,7 +138,7 @@ def calculate_metrics(df_pred, df_test, null_val):
     :param null_val:
     :return:
     """
-    mape = masked_mape_np(preds=df_pred.as_matrix(), labels=df_test.as_matrix(), null_val=null_val)
-    mae = masked_mae_np(preds=df_pred.as_matrix(), labels=df_test.as_matrix(), null_val=null_val)
-    rmse = masked_rmse_np(preds=df_pred.as_matrix(), labels=df_test.as_matrix(), null_val=null_val)
+    mape = masked_mape_np(preds=df_pred.values(), labels=df_test.values(), null_val=null_val)
+    mae = masked_mae_np(preds=df_pred.values(), labels=df_test.values(), null_val=null_val)
+    rmse = masked_rmse_np(preds=df_pred.values(), labels=df_test.values(), null_val=null_val)
     return mae, mape, rmse
