@@ -1,5 +1,6 @@
 import folium
 import pandas as pd
+import pickle
 
 # Function to read IDs from file and convert to numpy array
 def read_ids_to_array(file_path):
@@ -15,12 +16,31 @@ def read_ids_to_array(file_path):
 
     return id_list
 
+def add_line(map_obj, loc1, loc2, weight, color):
+    line = folium.PolyLine(locations=[loc1, loc2], weight=weight, color=color)
+    map_obj.add_child(line)
+
+def add_edges(map_obj, sensor_locations, adj_mx_filename):
+    with open(adj_mx_filename, "rb") as f:
+        sensor_ids, sensor_id_to_ind, adj_mx = pickle.load(f)
+    id_to_location = {str(int(row['sensor_id'])): (row['latitude'], row['longitude']) for idx, row in sensor_locations.iterrows()}
+    for i, id1 in enumerate(sensor_ids):
+        for j, id2 in enumerate(sensor_ids):
+            if i != j and adj_mx[i, j] > 0:
+                if id1 in id_to_location and id2 in id_to_location:
+                    location1 = id_to_location[id1]
+                    location2 = id_to_location[id2]
+                    # Add a line with a weight proportional to the adjacency matrix value
+                    add_line(map_obj, location1, location2, weight=adj_mx[i, j] * 2, color='green')
+
+
 if __name__ == '__main__':
 
     sensor_locations = pd.read_csv("data/sensor_graph/graph_sensor_locations.csv")
     sensor_locations_bay = pd.read_csv("data/sensor_graph/graph_sensor_locations_bay.csv")
     # sensor_ids = read_ids_to_array("data/sensor_graph/graph_sensor_ids.txt")
     sensor_ids = []
+
 
     # Create a map centered around Los Angeles
     la_map = folium.Map(location=[35.5522, -120.5437], zoom_start=7)
@@ -58,6 +78,9 @@ if __name__ == '__main__':
             fill_opacity=0.6,
             popup=f"Sensor ID: {int(row['sensor_id'])}"  # Popup text
         ).add_to(la_map)
+
+    # IF YOU WANT TO ADD EDGES FROM ADJ_MATRIX - uncomment
+    add_edges(la_map, sensor_locations_bay, 'data/sensor_graph/adj_mx_bay.pkl')
 
     # Display the map
     la_map.save('LA_AND_BAY_traffic_sensors_map.html')
