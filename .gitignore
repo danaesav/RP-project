@@ -108,6 +108,6 @@ data/metr-la.h5
 
 data/pems-bay.h5
 
-*/events.*
+*events.*
 *.npz
 *.tar
