@@ -30,8 +30,15 @@ def add_edges(map_obj, sensor_locations, adj_mx_filename):
                 if id1 in id_to_location and id2 in id_to_location:
                     location1 = id_to_location[id1]
                     location2 = id_to_location[id2]
-                    # Add a line with a weight proportional to the adjacency matrix value
-                    add_line(map_obj, location1, location2, weight=adj_mx[i, j] * 2, color='green')
+                    weight = adj_mx[i, j]
+                    # Create a feature group for each line to attach a popup
+                    line_group = folium.FeatureGroup()
+                    line = folium.PolyLine(locations=[location1, location2], weight=weight * 5, color='green')
+                    popup_text = f"From: Sensor {id1} to Sensor {id2}, Weight: {weight:.2f}"
+                    popup = folium.Popup(popup_text, parse_html=True)
+                    line.add_child(popup)
+                    line_group.add_child(line)
+                    map_obj.add_child(line_group)
 
 
 if __name__ == '__main__':
