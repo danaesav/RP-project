@@ -15,7 +15,6 @@ def main(args):
 
         graph_pkl_filename = supervisor_config['data'].get('graph_pkl_filename')
         sensor_ids, sensor_id_to_ind, adj_mx = load_graph_data(graph_pkl_filename)
-
         supervisor = DCRNNSupervisor(adj_mx=adj_mx, **supervisor_config)
 
         supervisor.train()
