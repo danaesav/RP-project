@@ -1,49 +1,39 @@
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
+import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
 
 # Load datasets
-train_data = np.load('data/METR-LA/test.npz')
+train_data = np.load('data/METR-LA/train.npz')
 test_data = np.load('data/METR-LA/test.npz')
 val_data = np.load('data/METR-LA/val.npz')
 
-print(list(train_data.keys()))
+# Extract datasets and reshape
+def process_data(data):
+    x, y = data['x'], data['y']
+    x = x.reshape(x.shape[0], x.shape[1], -1)
+    y = y.reshape(y.shape[0], y.shape[1], -1)
+    return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
 
-# Extracting datasets
-X_train, y_train = train_data['x'], train_data['y']
-X_test, y_test = test_data['x'], test_data['y']
-X_val, y_val = val_data['x'], val_data['y']
+X_train_tensor, y_train_tensor = process_data(train_data)
+X_test_tensor, y_test_tensor = process_data(test_data)
+X_val_tensor, y_val_tensor = process_data(val_data)
 
-# Convert to torch tensors
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train, dtype=torch.float32)
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-y_test_tensor = torch.tensor(y_test, dtype=torch.float32)
-X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-y_val_tensor = torch.tensor(y_val, dtype=torch.float32)
+# DataLoaders
+train_loader = DataLoader(TensorDataset(X_train_tensor, y_train_tensor), batch_size=64, shuffle=True)
+test_loader = DataLoader(TensorDataset(X_test_tensor, y_test_tensor), batch_size=64, shuffle=False)
+val_loader = DataLoader(TensorDataset(X_val_tensor, y_val_tensor), batch_size=64, shuffle=False)
 
-# Checking the data dimensions
-print("Original shape:", X_train_tensor.shape)
-
-# DataLoader setup
-train_loader = DataLoader(TensorDataset(X_train_tensor, y_train_tensor), batch_size=32, shuffle=True)
-test_loader = DataLoader(TensorDataset(X_test_tensor, y_test_tensor), batch_size=32, shuffle=False)
-val_loader = DataLoader(TensorDataset(X_val_tensor, y_val_tensor), batch_size=32, shuffle=False)
-
-import torch.optim as optim
-import torch.nn as nn
-
-import torch.nn as nn
-
-import torch
-import torch.nn as nn
-
-
+# LSTM model
 class CustomTrafficLSTM(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size):
         super(CustomTrafficLSTM, self).__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
+        self.num_layers = num_layers  # Store num_layers as an instance variable
+        self.hidden_size = hidden_size  # Store hidden_size as an instance variable
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.5)
         self.fc = nn.Linear(hidden_size, output_size)
 
@@ -56,35 +46,38 @@ class CustomTrafficLSTM(nn.Module):
         out, _ = self.lstm(x, (h0, c0))
 
         # Passing the output of the last time step to the fully connected layer
-        out = self.fc(out[:, -1, :])
+        out = self.fc(out)
+
         return out
 
+# Initialize the model
+model = CustomTrafficLSTM(X_train_tensor.shape[-1], 50, 2, y_train_tensor.shape[-1])
 
-# Parameters for model initialization
-input_size = X_train.shape[-1]  # Assuming 'X_train' is defined in the data loading step
-hidden_size = 50
-num_layers = 2
-output_size = y_train.shape[-1]  # Assuming 'y_train' is defined in the data loading step
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import matplotlib.pyplot as plt
+import numpy as np
 
-# Initialize the LSTM model
-model = CustomTrafficLSTM(input_size, hidden_size, num_layers, output_size)
+# Assuming the following variables are defined: model, train_loader, val_loader, test_loader
 
-# Print model architecture
-print(model)
-
-# Define loss and optimizer
 criterion = nn.MSELoss()
+mae_criterion = nn.L1Loss()  # To compute Mean Absolute Error
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Early stopping parameters
-patience = 10
+# Training
 best_val_loss = float('inf')
+patience = 10
 trigger_times = 0
 
-# Training loop
+train_mae = []
+val_mae = []
+
 for epoch in range(500):
     model.train()
     train_loss = 0
+    train_mae_accum = 0
+
     for inputs, labels in train_loader:
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -92,21 +85,21 @@ for epoch in range(500):
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
+        train_mae_accum += mae_criterion(outputs, labels).item()
 
-    # Validation loss
+    train_mae.append(train_mae_accum / len(train_loader))
+
     val_loss = 0
+    val_mae_accum = 0
     model.eval()
     with torch.no_grad():
         for inputs, labels in val_loader:
             outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            val_loss += loss.item()
+            val_loss += criterion(outputs, labels).item()
+            val_mae_accum += mae_criterion(outputs, labels).item()
 
-    # Print training and validation loss
-    print(
-        f'Epoch {epoch + 1}, Train Loss: {train_loss / len(train_loader):.4f}, Val Loss: {val_loss / len(val_loader):.4f}')
+    val_mae.append(val_mae_accum / len(val_loader))
 
-    # Early stopping
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         trigger_times = 0
@@ -116,12 +109,29 @@ for epoch in range(500):
             print("Early stopping!")
             break
 
-# Evaluate the model on the test set
+    print(f'Epoch {epoch + 1}, Val Loss: {val_loss / len(val_loader):.4f}')
+
+# Test evaluation
 test_loss = 0
+test_mae_accum = 0
 model.eval()
 with torch.no_grad():
     for inputs, labels in test_loader:
         outputs = model(inputs)
         test_loss += criterion(outputs, labels).item()
+        test_mae_accum += mae_criterion(outputs, labels).item()
 
+test_mae = test_mae_accum / len(test_loader)
 print(f'Test Loss: {test_loss / len(test_loader):.4f}')
+print(f'Test MAE: {test_mae:.4f}')
+
+# Plot MAE learning curves
+plt.figure(figsize=(10, 6))
+plt.plot(train_mae, label='Train MAE', color='blue')
+plt.plot(val_mae, label='Validation MAE', color='red')
+plt.title('MAE Learning Curve')
+plt.xlabel('Epoch')
+plt.ylabel('Mean Absolute Error')
+plt.legend()
+plt.grid(True)
+plt.show()
