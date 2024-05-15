@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import datetime
 from torch.utils.data import DataLoader, TensorDataset
 
 # Load datasets
@@ -51,7 +52,8 @@ class CustomTrafficLSTM(nn.Module):
         return out
 
 # Initialize the model
-model = CustomTrafficLSTM(X_train_tensor.shape[-1], 50, 2, y_train_tensor.shape[-1])
+lstmUnits =  50 #256
+model = CustomTrafficLSTM(X_train_tensor.shape[-1], lstmUnits, 2, y_train_tensor.shape[-1])
 
 import torch
 import torch.nn as nn
@@ -67,13 +69,15 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Training
 best_val_loss = float('inf')
-patience = 10
+patience = 50
 trigger_times = 0
 
 train_mae = []
 val_mae = []
 
 for epoch in range(500):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
+    print(f'{current_time} - Epoch {epoch + 1} started')
     model.train()
     train_loss = 0
     train_mae_accum = 0

@@ -55,12 +55,24 @@ def generate_graph_seq2seq_io_data(
 
 def generate_train_val_test(args):
     df = pd.read_hdf(args.traffic_df_filename)
+    with open("data/METR-LA/sensor_ids.txt", "r") as f:
+        content = f.read()
+        columns = content.split(',')
+    #columns = ["773062","771667","716941","773012","773013","718045","760650","767750","767751","773023","773024","716942","716951", "765182", "772513", "764853", "716943", "772669", "716949", "771673"]
+    df = df[columns]
+
     # 0 is the latest observed sample.
     x_offsets = np.sort(
         # np.concatenate(([-week_size + 1, -day_size + 1], np.arange(-11, 1, 1)))
+        #seq length 3
+        # np.concatenate((np.arange(-2, 1, 1),))
+        # seq length 12
         np.concatenate((np.arange(-11, 1, 1),))
     )
     # Predict the next one hour
+    # horizon 3
+    #y_offsets = np.sort(np.arange(1, 4, 1))
+    # horizon 12
     y_offsets = np.sort(np.arange(1, 13, 1))
     # x: (num_samples, input_length, num_nodes, input_dim)
     # y: (num_samples, output_length, num_nodes, output_dim)

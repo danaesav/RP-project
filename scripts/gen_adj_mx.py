@@ -55,9 +55,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     with open(args.sensor_ids_filename) as f:
-        # sensor_ids = f.read().strip().split(',')
-        sensor_ids = ['773062', '771667', '716941', '773012', '773013', '718045', '760650', '767750', '767751', '773023', '773024',
-         '716942', '716951', '765182', '772513', '764853', '716943', '772669', '716949', '771673']
+        sensor_ids = f.read().strip().split(',')
+        # sensor_ids = ['773062', '771667', '716941', '773012', '773013', '718045', '760650', '767750', '767751', '773023', '773024',
+        #  '716942', '716951', '765182', '772513', '764853', '716943', '772669', '716949', '771673']
 
     distance_df = pd.read_csv(args.distances_filename, dtype={'from': 'str', 'to': 'str'})
     _, sensor_id_to_ind, adj_mx = get_adjacency_matrix(distance_df, sensor_ids)
