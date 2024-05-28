@@ -33,6 +33,9 @@ def get_adjacency_matrix(distance_df, sensor_ids, normalized_k=0.1):
     # Calculates the standard deviation as theta.
     distances = dist_mx[~np.isinf(dist_mx)].flatten()
     std = distances.std()
+    epsilon = 1e-10
+    if std == 0:
+        std = epsilon
     adj_mx = np.exp(-np.square(dist_mx / std))
     # Make the adjacent matrix symmetric by taking the max.
     # adj_mx = np.maximum.reduce([adj_mx, adj_mx.T])

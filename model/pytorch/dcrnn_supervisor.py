@@ -253,6 +253,8 @@ class DCRNNSupervisor:
                     self._logger.warning('Early stopping at epoch: %d' % epoch_num)
                     break
 
+
+
     def _prepare_data(self, x, y):
         x, y = self._get_x_y(x, y)
         x, y = self._get_x_y_in_correct_dims(x, y)

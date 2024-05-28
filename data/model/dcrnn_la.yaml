@@ -15,17 +15,17 @@ model:
   input_dim: 2
   l1_decay: 0
   max_diffusion_step: 2
-  num_nodes: 10 # 207
+  num_nodes: 35 # 207
   num_rnn_layers: 2
   output_dim: 1
   rnn_units: 64
-  seq_len: 3 #12
+  seq_len: 3
   use_curriculum_learning: true
 
 train:
   base_lr: 0.01
   dropout: 0
-  epoch: 18
+  epoch: 28
   epochs: 100
   epsilon: 1.0e-3
   global_step: 0
@@ -36,6 +36,6 @@ train:
 # model_filename: models/epo19.tar
 #  log_dir: data/model/dcrnn_DR_2_h_3_64-64_lr_0.01_bs_64_0519161115
   optimizer: adam
-  patience: 50
+  patience: 20
   steps: [20, 30, 40, 50]
   test_every_n_epochs: 10

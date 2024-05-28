@@ -1,109 +1,184 @@
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, TensorDataset
-import matplotlib.pyplot as plt
-import torch
+from torch.utils.tensorboard import SummaryWriter
 import torch.nn as nn
+import os
+import sys
+sys.path.append(os.getcwd())
 import torch.optim as optim
 import datetime
-from torch.utils.data import DataLoader, TensorDataset
+from lib import metrics, utils
+from model.pytorch.loss import masked_mae_loss
+import time
+data = utils.load_dataset("data/METR-LA", 64, 64)
+scaler = data['scaler']
+train_loader = data['train_loader']
+test_loader = data['test_loader']
+val_loader = data['val_loader']
+time.strftime('%m%d%H%M%S')
+SENSORS = 35
 
-# Load datasets
-train_data = np.load('data/METR-LA/train.npz')
-test_data = np.load('data/METR-LA/test.npz')
-val_data = np.load('data/METR-LA/val.npz')
+# logging.
+_log_dir = "data/model/lstm"
+_writer = SummaryWriter('runs/' + _log_dir)
 
-# Extract datasets and reshape
-def process_data(data):
-    x, y = data['x'], data['y']
-    x = x.reshape(x.shape[0], x.shape[1], -1)
-    y = y.reshape(y.shape[0], y.shape[1], -1)
-    return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+_logger = utils.get_logger(_log_dir, __name__, 'info_.log')
 
-X_train_tensor, y_train_tensor = process_data(train_data)
-X_test_tensor, y_test_tensor = process_data(test_data)
-X_val_tensor, y_val_tensor = process_data(val_data)
+def _prepare_data(x, y):
+    x, y = _get_x_y(x, y)
+    x, y = _get_x_y_in_correct_dims(x, y)
+    return x.to(device), y.to(device)
 
-# DataLoaders
-train_loader = DataLoader(TensorDataset(X_train_tensor, y_train_tensor), batch_size=64, shuffle=True)
-test_loader = DataLoader(TensorDataset(X_test_tensor, y_test_tensor), batch_size=64, shuffle=False)
-val_loader = DataLoader(TensorDataset(X_val_tensor, y_val_tensor), batch_size=64, shuffle=False)
 
+def _get_x_y(x, y):
+    """
+    :param x: shape (batch_size, seq_len, num_sensor, input_dim)
+    :param y: shape (batch_size, horizon, num_sensor, input_dim)
+    :returns x shape (seq_len, batch_size, num_sensor, input_dim)
+             y shape (horizon, batch_size, num_sensor, input_dim)
+    """
+    x = torch.from_numpy(x).float()
+    y = torch.from_numpy(y).float()
+    x = x.permute(1, 0, 2, 3)
+    y = y.permute(1, 0, 2, 3)
+    return x, y
+
+
+def _get_x_y_in_correct_dims( x, y):
+    """
+    :param x: shape (seq_len, batch_size, num_sensor, input_dim)
+    :param y: shape (horizon, batch_size, num_sensor, input_dim)
+    :return: x: shape (seq_len, batch_size, num_sensor * input_dim)
+             y: shape (horizon, batch_size, num_sensor * output_dim)
+    """
+    batch_size = x.size(1)
+    x = x[..., :1].view(3, batch_size, SENSORS * 1)
+    y = y[..., :1].view(3, batch_size, SENSORS * 1)
+    return x, y
+
+
+def _compute_loss(y_true, y_predicted):
+    y_true = scaler.inverse_transform(y_true)
+    y_predicted = scaler.inverse_transform(y_predicted)
+    return masked_mae_loss(y_predicted, y_true)
+
+
+def evaluate(dataset='val', batches_seen=0):
+    """
+    Computes mean L1Loss
+    :return: mean L1Loss
+    """
+    with torch.no_grad():
+        model.eval()
+
+        val_iterator = data['{}_loader'.format(dataset)].get_iterator()
+        losses = []
+
+        y_truths = []
+        y_preds = []
+        for _, (x, y) in enumerate(val_iterator):
+            x, y = _prepare_data(x, y)
+
+
+            output = model(x)
+            loss =+ _compute_loss(y, output)
+            losses.append(loss.item())
+
+            y_truths.append(y.cpu())
+            y_preds.append(output.cpu())
+
+        mean_loss = np.mean(losses)
+
+        y_preds = np.concatenate(y_preds, axis=1)
+        y_truths = np.concatenate(y_truths, axis=1)  # concatenate on batch dimension
+
+        for t in range(y_preds.shape[0]):
+            y_truth = scaler.inverse_transform(y_truths[t])
+            y_pred = scaler.inverse_transform(y_preds[t])
+
+            mae = metrics.masked_mae_np(y_pred, y_truth, null_val=0)
+            mape = metrics.masked_mape_np(y_pred, y_truth, null_val=0)
+            rmse = metrics.masked_rmse_np(y_pred, y_truth, null_val=0)
+            if dataset != 'val':
+
+                print(
+                    "Horizon {:02d}, MAE: {:.4f}, MAPE: {:.4f}, RMSE: {:.2f}".format(
+                        t + 1, mae, mape, rmse
+                    )
+                )
+
+        return mean_loss
 # LSTM model
 class CustomTrafficLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, num_horizons):
         super(CustomTrafficLSTM, self).__init__()
-        self.num_layers = num_layers  # Store num_layers as an instance variable
-        self.hidden_size = hidden_size  # Store hidden_size as an instance variable
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.num_horizons = num_horizons
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=0.5)
         self.fc = nn.Linear(hidden_size, output_size)
+        self.count = 0
 
     def forward(self, x):
-        # Initialize hidden state and cell state for LSTM
+        # Initialize hidden and cell states
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
 
-        # Forward pass through LSTM layer
-        out, _ = self.lstm(x, (h0, c0))
+        outputs = []
+        for t in range(self.num_horizons):  # number of steps to forecast
+            out, (h0, c0) = self.lstm(x, (h0, c0))
+            out = out[-1, :, :]  # Get the last time step output (seq_len, batch, hidden) -> (batch, hidden)
+            out = self.fc(out)  # (batch, output_size)
+            outputs.append(out.unsqueeze(0))  # (1, batch, output_size)
 
-        # Passing the output of the last time step to the fully connected layer
-        out = self.fc(out)
+            # Replace the oldest value in x with the new prediction
+            out = out.unsqueeze(0)  # (1, batch, output_size)
+            x = torch.cat((x[1:], out), dim=0)  # (new_seq_len, batch, input_size)
 
-        return out
+        outputs = torch.cat(outputs, dim=0)  # (forecast_steps, batch, output_size)
+        return outputs
 
 # Initialize the model
-lstmUnits =  50 #256
-model = CustomTrafficLSTM(X_train_tensor.shape[-1], lstmUnits, 2, y_train_tensor.shape[-1])
+lstmUnits = 256 #50 #256
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import matplotlib.pyplot as plt
-import numpy as np
+model = CustomTrafficLSTM(SENSORS, lstmUnits, 2, SENSORS, 3)
 
-# Assuming the following variables are defined: model, train_loader, val_loader, test_loader
-
-criterion = nn.MSELoss()
-mae_criterion = nn.L1Loss()  # To compute Mean Absolute Error
+criterion = nn.L1Loss()
+mae_criterion = nn.L1Loss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Training
 best_val_loss = float('inf')
-patience = 50
+patience = 10
 trigger_times = 0
 
 train_mae = []
 val_mae = []
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+_logger.info('Start training ...')
 for epoch in range(500):
     current_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S,%f')[:-3]
     print(f'{current_time} - Epoch {epoch + 1} started')
     model.train()
     train_loss = 0
     train_mae_accum = 0
-
-    for inputs, labels in train_loader:
+    start_time = time.time()
+    for _, (inputs, labels) in enumerate(train_loader.get_iterator()):
+        x, y = _prepare_data(inputs, labels)
         optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
+        outputs = model(x)
+        loss = _compute_loss(y, outputs)
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
-        train_mae_accum += mae_criterion(outputs, labels).item()
+        train_mae_accum += mae_criterion(outputs, y).item()
 
-    train_mae.append(train_mae_accum / len(train_loader))
-
-    val_loss = 0
-    val_mae_accum = 0
-    model.eval()
-    with torch.no_grad():
-        for inputs, labels in val_loader:
-            outputs = model(inputs)
-            val_loss += criterion(outputs, labels).item()
-            val_mae_accum += mae_criterion(outputs, labels).item()
-
-    val_mae.append(val_mae_accum / len(val_loader))
-
+    _logger.info("epoch complete")
+    _logger.info("evaluating now!")
+    val_loss = evaluate("val")
+    end_time = time.time()
+    _logger.info("val: %s, epoch: %s, duration: %.1fs" % (val_loss, epoch, (end_time - start_time)))
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         trigger_times = 0
@@ -111,31 +186,12 @@ for epoch in range(500):
         trigger_times += 1
         if trigger_times >= patience:
             print("Early stopping!")
+            _logger.info("Early stopping! epoch: %s" % epoch)
             break
 
-    print(f'Epoch {epoch + 1}, Val Loss: {val_loss / len(val_loader):.4f}')
 
 # Test evaluation
 test_loss = 0
 test_mae_accum = 0
-model.eval()
-with torch.no_grad():
-    for inputs, labels in test_loader:
-        outputs = model(inputs)
-        test_loss += criterion(outputs, labels).item()
-        test_mae_accum += mae_criterion(outputs, labels).item()
-
-test_mae = test_mae_accum / len(test_loader)
-print(f'Test Loss: {test_loss / len(test_loader):.4f}')
-print(f'Test MAE: {test_mae:.4f}')
-
-# Plot MAE learning curves
-plt.figure(figsize=(10, 6))
-plt.plot(train_mae, label='Train MAE', color='blue')
-plt.plot(val_mae, label='Validation MAE', color='red')
-plt.title('MAE Learning Curve')
-plt.xlabel('Epoch')
-plt.ylabel('Mean Absolute Error')
-plt.legend()
-plt.grid(True)
-plt.show()
+result = evaluate('test')
+print(f'MAE {result}')
