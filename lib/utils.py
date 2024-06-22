@@ -210,26 +210,3 @@ def load_pickle(pickle_file):
         print('Unable to load data ', pickle_file, ':', e)
         raise
     return pickle_data
-
-
-# def load_graph_data(pkl_filename):
-#     # Load the data from the pickle file.
-#     sensor_ids, sensor_id_to_ind, adj_mx = load_pickle(pkl_filename)
-#
-#     # Define the selected sensor indices.
-#     selected_indices = [6,16,23,29,30,38,48,64,65,91,93,124,134,136,138,144,165,166,170,196]
-#
-#     # Create a mapping from index to sensor ID.
-#     selected_sensor_ids = [sensor_ids[i] for i in selected_indices if i < len(sensor_ids)]
-#
-#     # Create a mapping from sensor ID to its index.
-#     selected_sensor_id_to_ind = {sensor_id: sensor_id_to_ind[sensor_id] for sensor_id in selected_sensor_ids}
-#
-#     # Create an adjacency matrix only for the selected sensors.
-#     selected_adj_mx = adj_mx[np.ix_(selected_indices, selected_indices)]
-#     print(selected_sensor_ids)
-#     print(selected_sensor_id_to_ind)
-#     print(selected_adj_mx)
-#
-#     # Return the selected data.
-#     return selected_sensor_ids, selected_sensor_id_to_ind, selected_adj_mx
